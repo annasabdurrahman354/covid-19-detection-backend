@@ -6,6 +6,8 @@ import numpy as np
 import pickle
 from os.path import join
 from flask_cors import CORS
+import scipy.io.wavfile as wav
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -100,6 +102,7 @@ def predict_covid():
             cough_segments, cough_mask = segment_cough(x, sr, 0.2, 0.2)
 
             dataset = []
+            segments_base64 = []
 
             if len(cough_segments) == 0:
                 return jsonify({"error": "Tidak ada segmen batuk terdeteksi!"}), 400
@@ -107,11 +110,28 @@ def predict_covid():
             for i, segment in enumerate(cough_segments):
                 feature = extract_feature(segment, sr, boolean_values)
                 dataset.append(feature)
+                
+                newsegment = []
+                
+                # Ensure the audio is PCM 16-bit
+                if segment.dtype != np.int16:
+                    newsegment = (segment * 32767).astype(np.int16)
+
+
+                wav_filename = "temp_audio.wav"
+                wav.write(wav_filename, sr, newsegment)
+
+                with open(wav_filename, 'rb') as wav_file:
+                    wav_data = wav_file.read()
+
+                base64_wav_data = base64.b64encode(wav_data).decode('utf-8')
+                segments_base64.append(base64_wav_data)
 
             test_pred = model.predict(dataset)
             y_pred = np.where(test_pred > 0.5, 1, 0)
 
             return jsonify({
+                "wav_base64": segments_base64,
                 "prediction": y_pred.tolist(),
                 "probability": test_pred.tolist(),
                 }), 200
